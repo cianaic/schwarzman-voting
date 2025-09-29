@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Session } from '@/types';
-import { storage } from '@/lib/storage';
+import { api } from '@/lib/api';
 
 interface SessionManagerProps {
   onSessionChange: (session: Session | null) => void;
@@ -13,32 +13,54 @@ export default function SessionManager({ onSessionChange }: SessionManagerProps)
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [newSessionName, setNewSessionName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const allSessions = storage.getSessions();
-    const active = storage.getActiveSession();
-    setSessions(allSessions);
-    setActiveSession(active);
-    onSessionChange(active);
-  }, [onSessionChange]);
-
-  const handleCreateSession = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newSessionName.trim()) {
-      const session = storage.createSession(newSessionName.trim());
-      setSessions(storage.getSessions());
-      setActiveSession(session);
-      setNewSessionName('');
-      setIsCreating(false);
-      onSessionChange(session);
+  const loadSessions = async () => {
+    try {
+      const allSessions = await api.getSessions();
+      const active = allSessions.find(s => s.isActive) || null;
+      setSessions(allSessions);
+      setActiveSession(active);
+      onSessionChange(active);
+    } catch (error) {
+      console.error('Failed to load sessions:', error);
     }
   };
 
-  const handleSessionSelect = (sessionId: string) => {
-    storage.setActiveSession(sessionId);
-    const updated = storage.getActiveSession();
-    setActiveSession(updated);
-    onSessionChange(updated);
+  useEffect(() => {
+    loadSessions();
+  }, []);
+
+  const handleCreateSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newSessionName.trim() && !loading) {
+      setLoading(true);
+      try {
+        await api.createSession(newSessionName.trim());
+        await loadSessions();
+        setNewSessionName('');
+        setIsCreating(false);
+      } catch (error) {
+        console.error('Failed to create session:', error);
+        alert('Failed to create session. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleSessionSelect = async (sessionId: string) => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      await api.activateSession(sessionId);
+      await loadSessions();
+    } catch (error) {
+      console.error('Failed to activate session:', error);
+      alert('Failed to activate session. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -63,9 +85,10 @@ export default function SessionManager({ onSessionChange }: SessionManagerProps)
       <div className="flex gap-2 mb-4">
         <button
           onClick={() => setIsCreating(true)}
-          className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors"
+          disabled={loading}
+          className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
-          New Session
+          {loading ? 'Loading...' : 'New Session'}
         </button>
       </div>
 

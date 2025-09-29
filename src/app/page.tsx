@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Session, Question, User } from '@/types';
-import { storage } from '@/lib/storage';
+import { api } from '@/lib/api';
 import UserRegistration from '@/components/UserRegistration';
 import SessionManager from '@/components/SessionManager';
 import QuestionForm from '@/components/QuestionForm';
@@ -13,65 +13,103 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [showRegistration, setShowRegistration] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Load user from localStorage
   useEffect(() => {
-    const user = storage.getCurrentUser();
-    setCurrentUser(user);
-
-    const session = storage.getActiveSession();
-    if (session) {
-      setCurrentSession(session);
-      if (user && user.sessionId !== session.id) {
-        setShowRegistration(true);
-      } else if (!user) {
-        setShowRegistration(true);
-      } else {
-        setQuestions(storage.getQuestions(session.id));
+    const savedUser = localStorage.getItem('currentUser');
+    if (savedUser) {
+      try {
+        setCurrentUser(JSON.parse(savedUser));
+      } catch (error) {
+        console.error('Failed to parse saved user:', error);
+        localStorage.removeItem('currentUser');
       }
     }
   }, []);
 
+  // Load questions when session or user changes
+  const loadQuestions = async (sessionId: string) => {
+    try {
+      const sessionQuestions = await api.getQuestions(sessionId);
+      setQuestions(sessionQuestions);
+    } catch (error) {
+      console.error('Failed to load questions:', error);
+    }
+  };
+
+  // Set up polling for real-time updates
+  useEffect(() => {
+    if (currentSession && currentUser) {
+      loadQuestions(currentSession.id);
+
+      // Poll for updates every 5 seconds
+      pollIntervalRef.current = setInterval(() => {
+        loadQuestions(currentSession.id);
+      }, 5000);
+
+      return () => {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+        }
+      };
+    } else {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    }
+  }, [currentSession, currentUser]);
+
   const handleUserRegistration = (user: User) => {
-    storage.setCurrentUser(user);
+    localStorage.setItem('currentUser', JSON.stringify(user));
     setCurrentUser(user);
     setShowRegistration(false);
-    if (currentSession) {
-      setQuestions(storage.getQuestions(currentSession.id));
-    }
   };
 
   const handleSessionChange = (session: Session | null) => {
     setCurrentSession(session);
     if (session) {
-      const user = storage.getCurrentUser();
-      if (!user || user.sessionId !== session.id) {
+      if (!currentUser || currentUser.sessionId !== session.id) {
         setShowRegistration(true);
-      } else {
-        setQuestions(storage.getQuestions(session.id));
       }
     } else {
       setQuestions([]);
     }
   };
 
-  const handleQuestionSubmit = (questionText: string) => {
-    if (currentSession && currentUser) {
-      storage.createQuestion(currentSession.id, questionText, currentUser.name);
-      setQuestions(storage.getQuestions(currentSession.id));
+  const handleQuestionSubmit = async (questionText: string) => {
+    if (currentSession && currentUser && !loading) {
+      setLoading(true);
+      try {
+        await api.createQuestion(currentSession.id, questionText, currentUser.name);
+        await loadQuestions(currentSession.id);
+      } catch (error) {
+        console.error('Failed to submit question:', error);
+        alert('Failed to submit question. Please try again.');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const handleUpvote = (questionId: string) => {
-    if (currentUser && currentSession) {
-      const success = storage.upvoteQuestion(questionId, currentUser.name);
-      if (success) {
-        setQuestions(storage.getQuestions(currentSession.id));
+  const handleUpvote = async (questionId: string) => {
+    if (currentUser && currentSession && !loading) {
+      setLoading(true);
+      try {
+        await api.upvoteQuestion(currentSession.id, questionId, currentUser.name);
+        await loadQuestions(currentSession.id);
+      } catch (error) {
+        console.error('Failed to upvote question:', error);
+        // Don't show alert for upvote errors as they might be expected (already voted)
+      } finally {
+        setLoading(false);
       }
     }
   };
 
   const handleLogout = () => {
-    storage.clearCurrentUser();
+    localStorage.removeItem('currentUser');
     setCurrentUser(null);
     setShowRegistration(true);
   };
@@ -114,7 +152,7 @@ export default function Home() {
           <>
             <QuestionForm
               onSubmit={handleQuestionSubmit}
-              disabled={!currentSession || !currentUser}
+              disabled={!currentSession || !currentUser || loading}
             />
 
             <QuestionList
