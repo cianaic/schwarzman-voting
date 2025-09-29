@@ -1,8 +1,8 @@
 import { Session, Question, User } from '@/types';
 
 // Simple in-memory storage for demo purposes
-let sessions: Session[] = [];
-let questions: Question[] = [];
+const sessions: Session[] = [];
+const questions: Question[] = [];
 let currentUser: User | null = null;
 
 export const storage = {

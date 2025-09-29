@@ -91,7 +91,7 @@ export default function Home() {
             Schwarzman Scholars Q&A
           </h1>
           <p className="text-gray-600">
-            Submit questions and vote on what you'd like to hear discussed
+            Submit questions and vote on what you&apos;d like to hear discussed
           </p>
           {currentUser && (
             <div className="mt-4 flex justify-center items-center gap-4">
