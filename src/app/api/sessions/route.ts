@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
+import { serverStorage } from '@/lib/server-storage';
 import { Session } from '@/types';
 
 // GET /api/sessions - Get all sessions
 export async function GET() {
   try {
-    const sessions = await kv.get<Session[]>('sessions') || [];
+    const sessions = serverStorage.getSessions();
     return NextResponse.json(sessions);
   } catch (error) {
     console.error('Error fetching sessions:', error);
@@ -22,21 +22,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Session name is required' }, { status: 400 });
     }
 
-    // Get existing sessions and deactivate them
-    const sessions = await kv.get<Session[]>('sessions') || [];
-    sessions.forEach(session => session.isActive = false);
-
-    // Create new session
-    const newSession: Session = {
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      createdAt: new Date(),
-      isActive: true
-    };
-
-    sessions.push(newSession);
-    await kv.set('sessions', sessions);
-
+    const newSession = serverStorage.createSession(name.trim());
     return NextResponse.json(newSession, { status: 201 });
   } catch (error) {
     console.error('Error creating session:', error);

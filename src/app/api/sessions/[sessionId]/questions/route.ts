@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
+import { serverStorage } from '@/lib/server-storage';
 import { Question } from '@/types';
 
 // GET /api/sessions/[sessionId]/questions - Get questions for a session
@@ -9,17 +9,8 @@ export async function GET(
 ) {
   try {
     const { sessionId } = await params;
-    const questions = await kv.get<Question[]>(`questions:${sessionId}`) || [];
-
-    // Sort by upvotes (descending) then by creation date (descending)
-    const sortedQuestions = questions.sort((a, b) => {
-      if (b.upvotes !== a.upvotes) {
-        return b.upvotes - a.upvotes;
-      }
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-
-    return NextResponse.json(sortedQuestions);
+    const questions = serverStorage.getQuestions(sessionId);
+    return NextResponse.json(questions);
   } catch (error) {
     console.error('Error fetching questions:', error);
     return NextResponse.json({ error: 'Failed to fetch questions' }, { status: 500 });
@@ -47,21 +38,7 @@ export async function POST(
       return NextResponse.json({ error: 'Question must be 280 characters or less' }, { status: 400 });
     }
 
-    const questions = await kv.get<Question[]>(`questions:${sessionId}`) || [];
-
-    const newQuestion: Question = {
-      id: crypto.randomUUID(),
-      sessionId,
-      text: text.trim(),
-      submittedBy: submittedBy.trim(),
-      upvotes: 0,
-      upvotedBy: [],
-      createdAt: new Date()
-    };
-
-    questions.push(newQuestion);
-    await kv.set(`questions:${sessionId}`, questions);
-
+    const newQuestion = serverStorage.createQuestion(sessionId, text.trim(), submittedBy.trim());
     return NextResponse.json(newQuestion, { status: 201 });
   } catch (error) {
     console.error('Error creating question:', error);
