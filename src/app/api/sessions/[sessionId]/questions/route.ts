@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { serverStorage } from '@/lib/server-storage';
+import { supabase, dbQuestionToQuestion, questionToDbQuestion } from '@/lib/supabase';
 import { Question } from '@/types';
 
 // GET /api/sessions/[sessionId]/questions - Get questions for a session
@@ -9,7 +9,17 @@ export async function GET(
 ) {
   try {
     const { sessionId } = await params;
-    const questions = serverStorage.getQuestions(sessionId);
+
+    const { data, error } = await supabase
+      .from('questions')
+      .select('*')
+      .eq('session_id', sessionId)
+      .order('upvotes', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const questions = data?.map(dbQuestionToQuestion) || [];
     return NextResponse.json(questions);
   } catch (error) {
     console.error('Error fetching questions:', error);
@@ -38,8 +48,25 @@ export async function POST(
       return NextResponse.json({ error: 'Question must be 280 characters or less' }, { status: 400 });
     }
 
-    const newQuestion = serverStorage.createQuestion(sessionId, text.trim(), submittedBy.trim());
-    return NextResponse.json(newQuestion, { status: 201 });
+    const newQuestion: Question = {
+      id: crypto.randomUUID(),
+      sessionId,
+      text: text.trim(),
+      submittedBy: submittedBy.trim(),
+      upvotes: 0,
+      upvotedBy: [],
+      createdAt: new Date()
+    };
+
+    const { data, error } = await supabase
+      .from('questions')
+      .insert([questionToDbQuestion(newQuestion)])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return NextResponse.json(dbQuestionToQuestion(data), { status: 201 });
   } catch (error) {
     console.error('Error creating question:', error);
     return NextResponse.json({ error: 'Failed to create question' }, { status: 500 });
